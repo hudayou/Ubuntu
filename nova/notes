@@ -1,0 +1,118 @@
+1. Intall Ubuntu Lucid in VM.
+2. Fetch install script, install openstack components.
+   wget --no-check-certificate https://github.com/dubsquared/OpenStack-NOVA-Installer-Script/raw/master/nova-CC-install-v1.1.sh
+   sudo chmod 755 nova-CC-install-v1.1.sh
+3. Ensure virtual machine type is qemu(since you are in a vm).
+   Check the following line in file /etc/nova/nova.conf
+   --libvirt_type=qemu
+4. Choose flat networking during installation and choose the 192.168.122.0/24
+   as the compute network(the same networking setttings as your VM).
+5. Upload kernel, ramdisk and rootfs images of your nova compute machine.
+    mkdir kernel
+    euca-bundle-image --image /boot/vmlinuz-$(uname -r) \
+        --destination ./kernel --kernel true
+    euca-upload-bundle --bucket kernel \
+        --manifest ./kernel/vmlinuz-$(uname -r).manifest.xml
+    EKI=`euca-register kernel/vmlinuz-$(uname -r).manifest.xml | awk '{print $2}'`
+    echo $EKI
+    
+    mkdir ramdisk
+    sudo sh -c 'grep -q acpiphp /etc/initramfs-tools/modules ||
+    printf "#acpiphp needed for ebs\nacpiphp\n" > /etc/initramfs-tools/modules'
+    sudo mkinitramfs -o ./ramdisk/initrd.img-$(uname -r)
+    euca-bundle-image --image ./ramdisk/initrd.img-$(uname -r) \
+        --destination ./ramdisk --ramdisk true
+    euca-upload-bundle --bucket ramdisk \
+        --manifest ramdisk/initrd.img-$(uname -r).manifest.xml
+    ERI=`euca-register ramdisk/initrd.img-$(uname -r).manifest.xml | awk '{print $2}'`
+    echo $ERI
+    
+    mkdir image
+    euca-bundle-image --image ubuntu-xen/root.img \
+        --destination ./image --kernel $EKI --ramdisk $ERI
+        euca-upload-bundle --bucket image --manifest ./image/root.img.manifest.xml
+        EMI=`euca-register image/root.img.manifest.xml | awk '{print $2}'`
+        echo $EMI
+6. Install nova-volume using apt-get, create logical volume group named "nova-volumes".
+7. Enable iscsitarget
+   sed -i -e 's/False/True/ig' /etc/default/iscsitarget
+8. For nova packages version <= 2011.2-0ubuntu0ppa1~lucid1
+   You need to modify s3.py to change the default is_public image property to
+   False.
+   sed -i -e '/is_public/ s/True/False/' /usr/share/pyshared/nova/image/s3.py
+   rm /usr/lib/pymodules/python2.6/nova/image/s3.pyc
+   cd /usr/lib/pymodules/python2.6/nova/image
+   python
+   >>>import s3
+   sudo reboot
+9. To change uploaded image is_public attribute
+   modify file /var/lib/nova/images/1d2c70ef/info.json
+   change is_public attribute
+
+Notes:
+1. virsh default network should be disabled
+   rm /etc/libvirt/qemu/networks/autostart/default
+2. to use 2011.3 release
+   Method 1.
+       sudo apt-get install python-software-properties
+       sudo add-apt-repository ppa:openstack-release/2011.3
+       sudo apt-get update
+   Method 2.
+       sed -i -e 's/nova-core\/release/openstack-release\/2011.3/g' nova-CC-install-v1.1.sh
+3. to use FlatDHCPManager, have the following lines in /etc/nova/nova/conf,
+   ensure br100 is not occupied.
+   --network_manager=nova.network.manager.FlatDHCPManager
+   --flat_network_dhcp_start=10.0.0.2
+   --flat_interface=eth1
+   --flat_injected=False
+   --public_interface=eth0
+4. to be able to use volumes, ensure acpiphp module is loaded in your image,
+   so the guest can detect auto attached volumes.
+   echo acpiphp>>/etc/modules
+5. to use FlatManager, flat_injected must be set to true.
+   --flat_injected=True
+6. FlatManager does not support floating ip.
+8. If floating ip does not work, check the iptables rules and identify all
+   DROP rules. Makes sure they are not dropping your packages.
+   iptables -L -vnx
+   iptables-save
+   iptables-restore
+9. Check nova security groups rules
+   euca-describe-groups
+   euca-authorize
+   euca-revoke
+   euca-authorize -P tcp -p 8080 default
+   euca-authorize -P tcp -p 80 default
+   euca-authorize -P tcp -p 22 default
+   euca-authorize -P icmp -t -1:-1 default
+10.Enable net.ipv4.ip_forward on nova host so the guests can access public
+   word
+11.Raise the quota in db during capacity test.
+   sudo nova-manage project quota --project=pid --key=key --value=value
+   keys-sugested_values:
+        'instances'- 256
+        'cores' - 2048
+        'ram' - 4194304
+        'volumes' - 256
+        'gigabytes' - 10000
+        'floating_ips' - 256
+        'metadata_items' - use default
+        'injected_files' - use default
+        'injected_file_content_bytes' - use default
+12.Assure the network size > 256 during capacity test
+   sudo nova-manage network list
+13.Create volumes
+   pvcreate /dev/vdb1
+   vgcreate nova-volumes /dev/vdb1
+
+References:
+1. http://docs.openstack.org/bexar/openstack-compute/admin/content/ch03s02.html#d5e161
+2. http://docs.openstack.org/cactus/openstack-compute/admin/content/configuring-flat-dhcp-networking.html
+3. https://launchpad.net/~openstack-release/
+4. http://www.linux-kvm.org/page/Hotadd_pci_devices
+5. http://linux-ip.net/html/index.html
+6. http://www.frozentux.net/iptables-tutorial/iptables-tutorial.html
+7. http://docs.openstack.org/diablo/openstack-compute/starter/content/Security_Overview-d1e2505.html
+8. https://github.com/dubsquared/OpenStack-NOVA-Installer-Script/raw/master/nova-CC-install-v1.1.sh
+9. http://launchpad.net/nova-deployment-tool/cactus/cactus1.3/+download/nova-deployment-tool-cactus.tgz
+10.http://www.gentoo.org/doc/en/lvm2.xml
