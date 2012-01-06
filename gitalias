@@ -1,0 +1,9 @@
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+	unstage = reset HEAD --
+	last = log -1 HEAD
+	visual = !gitk
+	stash-unapply = !git stash show -p | git apply -R
