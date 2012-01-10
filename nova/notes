@@ -104,6 +104,8 @@ Notes:
 13.Create volumes
    pvcreate /dev/vdb1
    vgcreate nova-volumes /dev/vdb1
+14.Use correct kernel module name for iscsi target
+   sed -i -e 's/iscsi_trgt/iscsi_target_mod/g' /etc/init.d/iscsitarget
 
 References:
 1. http://docs.openstack.org/bexar/openstack-compute/admin/content/ch03s02.html#d5e161
